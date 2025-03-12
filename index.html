@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Garden Planner with Editable Vegetables & Instance Editing</title>
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    body {
+      padding: 20px;
+    }
+    .grid-container {
+      display: grid;
+      gap: 5px;
+      margin-top: 20px;
+      border: 2px solid #333;
+      justify-content: center;
+    }
+    .grid-cell {
+      width: 80px;
+      height: 80px;
+      border: 1px solid #666;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: #f8f8f8;
+      cursor: pointer;
+      position: relative;
+      text-align: center;
+      font-size: 0.9rem;
+    }
+    .grid-cell.occupied {
+      background-color: #a8d8a8;
+    }
+    .grid-cell.warning {
+      background-color: #f88 !important;
+    }
+    /* Accordion styling */
+    .accordion-button:not(.collapsed) {
+      color: #fff;
+      background-color: #0d6efd;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="text-center mb-4">Garden Planner</h1>
+
+    <!-- Accordion for Configurations -->
+    <div class="accordion mb-4" id="configAccordion">
+      <!-- Grid Settings -->
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="headingGrid">
+          <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseGrid" aria-expanded="true">
+            Grid Settings
+          </button>
+        </h2>
+        <div id="collapseGrid" class="accordion-collapse collapse show">
+          <div class="accordion-body">
+            <div class="mb-2">
+              <label for="rows" class="form-label">Rows:</label>
+              <input type="number" id="rows" class="form-control" value="5" min="1" />
+            </div>
+            <div class="mb-2">
+              <label for="columns" class="form-label">Columns:</label>
+              <input type="number" id="columns" class="form-control" value="5" min="1" />
+            </div>
+            <button id="applyGrid" class="btn btn-primary w-100">Apply Grid Settings</button>
+          </div>
+        </div>
+      </div>
+      <!-- Vegetable List -->
+      <div class="accordion-item">
+        <h2 class="accordion-header" id="headingVeg">
+          <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseVeg" aria-expanded="false">
+            Vegetable List
+          </button>
+        </h2>
+        <div id="collapseVeg" class="accordion-collapse collapse">
+          <div class="accordion-body">
+            <ul id="vegList" class="list-group"></ul>
+            <button id="openAddVegBtn" class="btn btn-outline-primary w-100 mt-2">Add New Vegetable</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import / Export / Optimize Buttons -->
+    <div class="mb-3">
+      <button id="exportConfig" class="btn btn-success">Export Configuration</button>
+      <button id="importConfig" class="btn btn-info">Import Configuration</button>
+      <input type="file" id="fileInput" accept=".json" style="display: none;" />
+      <button id="optimizeBtn" class="btn btn-warning">Optimize Layout</button>
+    </div>
+
+    <!-- Grid Container -->
+    <div id="grid" class="grid-container"></div>
+  </div>
+
+  <!-- Modal for Adding a Vegetable to the Grid -->
+  <div class="modal fade" id="plantModal" tabindex="-1" aria-labelledby="plantModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="plantModalLabel">Add Vegetable to Grid</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="closeModalBtn"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-2">
+            <label for="plantSelect" class="form-label">Select Vegetable:</label>
+            <select id="plantSelect" class="form-select"></select>
+          </div>
+          <div class="mb-2">
+            <label for="inputRow" class="form-label">Row (0-indexed):</label>
+            <input type="number" id="inputRow" class="form-control" min="0" />
+          </div>
+          <div class="mb-2">
+            <label for="inputCol" class="form-label">Column (0-indexed):</label>
+            <input type="number" id="inputCol" class="form-control" min="0" />
+          </div>
+          <small class="text-muted">Note: The plant’s size will determine how many cells it occupies.</small>
+        </div>
+        <div class="modal-footer">
+          <button id="addPlantBtn" class="btn btn-primary">➕ Add</button>
+          <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Editing a Plant Instance in the Grid -->
+  <div class="modal fade" id="editPlantModal" tabindex="-1" aria-labelledby="editPlantModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+         <div class="modal-header">
+           <h5 class="modal-title" id="editPlantModalLabel">Edit Plant Instance</h5>
+           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="closeEditPlantBtn"></button>
+         </div>
+         <div class="modal-body">
+           <p>Plant: <span id="editCellVegLabel"></span> (<span id="editCellVegKey"></span>)</p>
+           <p>Size: <span id="editCellVegSize"></span></p>
+           <p>Main Cell: <span id="editCellCoord"></span></p>
+           <input type="hidden" id="hiddenMainRow" />
+           <input type="hidden" id="hiddenMainCol" />
+         </div>
+         <div class="modal-footer">
+           <button id="removePlantInstanceBtn" class="btn btn-danger">Remove</button>
+           <button id="changePlantInstanceBtn" class="btn btn-primary">Change</button>
+           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Editing a Vegetable from the List -->
+  <div class="modal fade" id="editVegModal" tabindex="-1" aria-labelledby="editVegModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+         <div class="modal-header">
+           <h5 class="modal-title" id="editVegModalLabel">Edit Vegetable</h5>
+           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="closeEditVegBtn"></button>
+         </div>
+         <div class="modal-body">
+           <form id="editVegForm">
+             <div class="mb-2">
+               <label for="editVegKey" class="form-label">Identifier (key):</label>
+               <input type="text" id="editVegKey" class="form-control" readonly />
+             </div>
+             <div class="mb-2">
+               <label for="editVegLabel" class="form-label">Label:</label>
+               <input type="text" id="editVegLabel" class="form-control" required />
+             </div>
+             <div class="mb-2">
+               <label for="editVegSize" class="form-label">Size (cells):</label>
+               <input type="number" id="editVegSize" class="form-control" min="1" required />
+             </div>
+             <div class="mb-2">
+               <label for="editVegPerCell" class="form-label">Per Cell (max count):</label>
+               <input type="number" id="editVegPerCell" class="form-control" min="1" required />
+             </div>
+             <div class="mb-2">
+               <label for="editVegGood" class="form-label">Good Associations (comma separated):</label>
+               <input type="text" id="editVegGood" class="form-control" />
+             </div>
+             <div class="mb-2">
+               <label for="editVegBad" class="form-label">Bad Associations (comma separated):</label>
+               <input type="text" id="editVegBad" class="form-control" />
+             </div>
+           </form>
+         </div>
+         <div class="modal-footer">
+           <button id="deleteVegBtn" class="btn btn-danger">Delete</button>
+           <button id="saveVegBtn" class="btn btn-primary">Save Changes</button>
+           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for Adding a New Vegetable to the List -->
+  <div class="modal fade" id="addVegModal" tabindex="-1" aria-labelledby="addVegModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+      <div class="modal-content">
+         <div class="modal-header">
+           <h5 class="modal-title" id="addVegModalLabel">Add New Vegetable</h5>
+           <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" id="closeAddVegBtn"></button>
+         </div>
+         <div class="modal-body">
+           <form id="addVegForm">
+             <div class="mb-2">
+               <label for="newVegKey" class="form-label">Identifier (key):</label>
+               <input type="text" id="newVegKey" class="form-control" placeholder="e.g., spinach" required />
+             </div>
+             <div class="mb-2">
+               <label for="newVegLabel" class="form-label">Label:</label>
+               <input type="text" id="newVegLabel" class="form-control" placeholder="e.g., Spinach 🥬" required />
+             </div>
+             <div class="mb-2">
+               <label for="newVegSize" class="form-label">Size (cells):</label>
+               <input type="number" id="newVegSize" class="form-control" min="1" value="1" required />
+             </div>
+             <div class="mb-2">
+               <label for="newVegPerCell" class="form-label">Per Cell (max count):</label>
+               <input type="number" id="newVegPerCell" class="form-control" min="1" value="1" required />
+             </div>
+             <div class="mb-2">
+               <label for="newVegGood" class="form-label">Good Associations (comma separated):</label>
+               <input type="text" id="newVegGood" class="form-control" placeholder="e.g., tomato,basil" />
+             </div>
+             <div class="mb-2">
+               <label for="newVegBad" class="form-label">Bad Associations (comma separated):</label>
+               <input type="text" id="newVegBad" class="form-control" placeholder="e.g., eggplant" />
+             </div>
+           </form>
+         </div>
+         <div class="modal-footer">
+           <button id="saveNewVegBtn" class="btn btn-primary">Add Vegetable</button>
+           <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5 Bundle (includes Popper) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    /***********************
+     * Global Variables
+     ***********************/
+    let gridData = []; // 2D array for grid cells (each cell: null or { plant, main, warn })
+    let gridRows = 5;
+    let gridCols = 5;
+    // Default vegetable list
+    let vegList = {
+      "calabacin": { "size": 2, "perCell": 1, "label": "Calabacín", "good": ["guisantes", "judias"], "bad": ["berenjena"] },
+      "pimiento": { "size": 1, "perCell": 1, "label": "Pimiento", "good": ["cebolla", "acelga", "judias", "tomate"], "bad": [] },
+      "tomate": { "size": 1, "perCell": 1, "label": "Tomate", "good": ["guisantes", "rabanos"], "bad": [] },
+      "acelga": { "size": 1, "perCell": 1, "label": "Acelga", "good": ["rabanos", "pimiento", "tomate"], "bad": [] },
+      "albahaca": { "size": 1, "perCell": 1, "label": "Albahaca", "good": ["all"], "bad": [] },
+      "tagetes": { "size": 1, "perCell": 1, "label": "Tagetes", "good": ["all"], "bad": [] },
+      "guisantes": { "size": 1, "perCell": 9, "label": "Guisantes", "good": ["calabacin", "tomate"], "bad": ["cebolla"] },
+      "judias": { "size": 1, "perCell": 9, "label": "Judías Verdes", "good": ["acelga", "pimiento", "rabanos", "tomate"], "bad": ["berenjena", "calabacin"] },
+      "cebolla": { "size": 1, "perCell": 16, "label": "Cebolla", "good": ["tomate", "calabacin", "acelga", "pimiento"], "bad": ["guisantes", "judias"] },
+      "rucula": { "size": 1, "perCell": 16, "label": "Rúcula", "good": [], "bad": [] },
+      "rabanos": { "size": 1, "perCell": 16, "label": "Rábanos", "good": ["tomate", "acelga", "judias"], "bad": [] },
+      "berenjena": { "size": 1, "perCell": 1, "label": "Berenjena", "good": ["cebolla", "rabanos"], "bad": ["judias", "calabacin"] }
+    };
+
+    /***********************
+     * Render Vegetable List in Accordion
+     ***********************/
+    function renderVegList() {
+      const vegListContainer = document.getElementById("vegList");
+      vegListContainer.innerHTML = "";
+      for (const key in vegList) {
+        const li = document.createElement("li");
+        li.className = "list-group-item list-group-item-action";
+        li.style.cursor = "pointer";
+        li.innerText = vegList[key].label + " (" + key + ")";
+        li.onclick = () => openEditVegModal(key);
+        vegListContainer.appendChild(li);
+      }
+    }
+
+    /***********************
+     * Grid Functions
+     ***********************/
+    function createGrid(rows = gridRows, cols = gridCols) {
+      gridData = [];
+      for (let r = 0; r < rows; r++) {
+        gridData[r] = [];
+        for (let c = 0; c < cols; c++) {
+          gridData[r][c] = null;
+        }
+      }
+      const grid = document.getElementById("grid");
+      grid.innerHTML = "";
+      grid.style.gridTemplateColumns = `repeat(${cols}, 80px)`;
+      grid.style.gridTemplateRows = `repeat(${rows}, 80px)`;
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cell = document.createElement("div");
+          cell.classList.add("grid-cell");
+          cell.dataset.row = r;
+          cell.dataset.column = c;
+          cell.onclick = () => openCellModal(r, c);
+          grid.appendChild(cell);
+        }
+      }
+      applyGridData();
+    }
+
+    function applyGridData() {
+      document.querySelectorAll(".grid-cell").forEach((cell) => {
+        const r = parseInt(cell.dataset.row);
+        const c = parseInt(cell.dataset.column);
+        const cellData = gridData[r][c];
+        if (cellData) {
+          cell.innerText = cellData.main ? vegList[cellData.plant].label : "";
+          if (cellData.warn) {
+            cell.classList.add("warning");
+            cell.classList.remove("occupied");
+          } else {
+            cell.classList.add("occupied");
+            cell.classList.remove("warning");
+          }
+        } else {
+          cell.innerText = "";
+          cell.classList.remove("occupied", "warning");
+        }
+      });
+    }
+
+    /***********************
+     * Modal & Plant Adding Functions
+     ***********************/
+    let selectedRow, selectedCol; // coordinates for the cell that triggers modal
+
+    // When a cell is clicked, open add modal if empty; else open edit modal
+    function openCellModal(r, c) {
+      if (gridData[r][c] === null) {
+        openPlantModal(r, c);
+      } else {
+        openEditPlantModal(r, c);
+      }
+    }
+
+    function openPlantModal(r, c) {
+      selectedRow = r;
+      selectedCol = c;
+      document.getElementById("inputRow").value = r;
+      document.getElementById("inputCol").value = c;
+      populatePlantSelect();
+      const modal = new bootstrap.Modal(document.getElementById("plantModal"));
+      modal.show();
+    }
+
+    function closePlantModal() {
+      const modalEl = document.getElementById("plantModal");
+      const modal = bootstrap.Modal.getInstance(modalEl);
+      modal.hide();
+    }
+
+    function populatePlantSelect() {
+      const select = document.getElementById("plantSelect");
+      select.innerHTML = "";
+      for (const veg in vegList) {
+        const option = document.createElement("option");
+        option.value = veg;
+        option.text = vegList[veg].label;
+        select.appendChild(option);
+      }
+    }
+
+    // Check adjacent cells for bad associations
+    function checkBadAssociations(plantKey, startRow, startCol, size) {
+      const newVeg = vegList[plantKey];
+      let conflicts = [];
+      for (let r = startRow; r < startRow + size; r++) {
+        for (let c = startCol; c < startCol + size; c++) {
+          for (let i = r - 1; i <= r + 1; i++) {
+            for (let j = c - 1; j <= c + 1; j++) {
+              if (i === r && j === c) continue;
+              if (i >= 0 && i < gridRows && j >= 0 && j < gridCols) {
+                const neighbor = gridData[i][j];
+                if (neighbor) {
+                  const neighborVeg = vegList[neighbor.plant];
+                  if (newVeg.bad.includes(neighbor.plant) || neighborVeg.bad.includes(plantKey)) {
+                    if (!conflicts.includes(neighborVeg.label)) {
+                      conflicts.push(neighborVeg.label);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      return conflicts;
+    }
+
+    function addPlant() {
+      const plantKey = document.getElementById("plantSelect").value;
+      const inputRow = parseInt(document.getElementById("inputRow").value);
+      const inputCol = parseInt(document.getElementById("inputCol").value);
+      const plant = vegList[plantKey];
+      const size = plant.size;
+      if (inputRow + size > gridRows || inputCol + size > gridCols) {
+        alert("Not enough space for this plant at the chosen position.");
+        return;
+      }
+      for (let r = inputRow; r < inputRow + size; r++) {
+        for (let c = inputCol; c < inputCol + size; c++) {
+          if (gridData[r][c] !== null) {
+            alert("The selected block is not completely empty.");
+            return;
+          }
+        }
+      }
+      const conflicts = checkBadAssociations(plantKey, inputRow, inputCol, size);
+      let warn = false;
+      if (conflicts.length > 0) {
+        const msg = "Warning: Adding " + plant.label + " here may conflict with " + conflicts.join(", ") + ". Do you want to proceed?";
+        if (!confirm(msg)) {
+          return;
+        }
+        warn = true;
+      }
+      for (let r = inputRow; r < inputRow + size; r++) {
+        for (let c = inputCol; c < inputCol + size; c++) {
+          gridData[r][c] = { plant: plantKey, main: (r === inputRow && c === inputCol), warn: warn };
+        }
+      }
+      applyGridData();
+      closePlantModal();
+    }
+
+    /***********************
+     * Edit Grid Plant Instance Modal
+     ***********************/
+    function openEditPlantModal(r, c) {
+      // Get the instance covering cell (r,c)
+      const placements = getPlacementsForCell(r, c);
+      if (placements.length === 0) return;
+      const instance = placements[0];
+      // Find the main cell coordinates for this instance
+      let mainRow = r, mainCol = c;
+      if (!gridData[r][c].main) {
+        let size = vegList[instance.plant].size;
+        for (let i = Math.max(0, r - size + 1); i <= r; i++) {
+          for (let j = Math.max(0, c - size + 1); j <= c; j++) {
+            if (gridData[i][j] && gridData[i][j].plant === instance.plant && gridData[i][j].main) {
+              mainRow = i;
+              mainCol = j;
+            }
+          }
+        }
+      }
+      document.getElementById("editCellVegKey").innerText = instance.plant;
+      document.getElementById("editCellVegLabel").innerText = vegList[instance.plant].label;
+      document.getElementById("editCellVegSize").innerText = vegList[instance.plant].size;
+      document.getElementById("editCellCoord").innerText = "(" + mainRow + ", " + mainCol + ")";
+      document.getElementById("hiddenMainRow").value = mainRow;
+      document.getElementById("hiddenMainCol").value = mainCol;
+      const modal = new bootstrap.Modal(document.getElementById("editPlantModal"));
+      modal.show();
+    }
+
+    function removePlantInstance() {
+      const mainRow = parseInt(document.getElementById("hiddenMainRow").value);
+      const mainCol = parseInt(document.getElementById("hiddenMainCol").value);
+      removePlantAt(mainRow, mainCol);
+      const modal = bootstrap.Modal.getInstance(document.getElementById("editPlantModal"));
+      modal.hide();
+    }
+
+    function changePlantInstance() {
+      const mainRow = parseInt(document.getElementById("hiddenMainRow").value);
+      const mainCol = parseInt(document.getElementById("hiddenMainCol").value);
+      removePlantAt(mainRow, mainCol);
+      const modal = bootstrap.Modal.getInstance(document.getElementById("editPlantModal"));
+      modal.hide();
+      openPlantModal(mainRow, mainCol);
+    }
+
+    // Returns all grid cell objects that are part of the instance covering (r,c)
+    function getPlacementsForCell(r, c) {
+      let placements = [];
+      for (let i = 0; i < gridRows; i++) {
+        for (let j = 0; j < gridCols; j++) {
+          if (gridData[i][j] && i === r && j === c) {
+            placements.push(gridData[i][j]);
+          }
+        }
+      }
+      // In our implementation, the same instance object is stored in each cell of the block.
+      // So we can simply return an array with that object if it exists.
+      return placements.length > 0 ? [placements[0]] : [];
+    }
+
+    // Remove the entire instance that covers the main cell (r,c)
+    function removePlantAt(r, c) {
+      const plantInstance = gridData[r][c];
+      if (!plantInstance) return;
+      const size = vegList[plantInstance.plant].size;
+      // Find block: search from r to r+size and c to c+size
+      for (let i = r; i < r + size; i++) {
+        for (let j = c; j < c + size; j++) {
+          if (i < gridRows && j < gridCols && gridData[i][j] && gridData[i][j].plant === plantInstance.plant) {
+            gridData[i][j] = null;
+          }
+        }
+      }
+      applyGridData();
+    }
+
+    /***********************
+     * Edit Vegetable Modal (List Editor)
+     ***********************/
+    function openEditVegModal(key) {
+      const veg = vegList[key];
+      document.getElementById("editVegKey").value = key;
+      document.getElementById("editVegLabel").value = veg.label;
+      document.getElementById("editVegSize").value = veg.size;
+      document.getElementById("editVegPerCell").value = veg.perCell;
+      document.getElementById("editVegGood").value = veg.good.join(", ");
+      document.getElementById("editVegBad").value = veg.bad.join(", ");
+      const modal = new bootstrap.Modal(document.getElementById("editVegModal"));
+      modal.show();
+    }
+
+    function saveEditedVegetable() {
+      const key = document.getElementById("editVegKey").value;
+      if (!vegList[key]) {
+        alert("Vegetable not found.");
+        return;
+      }
+      vegList[key].label = document.getElementById("editVegLabel").value;
+      vegList[key].size = parseInt(document.getElementById("editVegSize").value);
+      vegList[key].perCell = parseInt(document.getElementById("editVegPerCell").value);
+      vegList[key].good = document.getElementById("editVegGood").value.split(",").map(s => s.trim()).filter(s => s);
+      vegList[key].bad = document.getElementById("editVegBad").value.split(",").map(s => s.trim()).filter(s => s);
+      renderVegList();
+      populatePlantSelect();
+      const modal = bootstrap.Modal.getInstance(document.getElementById("editVegModal"));
+      modal.hide();
+      alert("Vegetable updated.");
+    }
+
+    function deleteVegetable() {
+      const key = document.getElementById("editVegKey").value;
+      if (confirm("Are you sure you want to delete this vegetable?")) {
+        delete vegList[key];
+        renderVegList();
+        populatePlantSelect();
+        const modal = bootstrap.Modal.getInstance(document.getElementById("editVegModal"));
+        modal.hide();
+        alert("Vegetable deleted.");
+      }
+    }
+
+    /***********************
+     * Add New Vegetable Modal Functions
+     ***********************/
+    function openAddVegModal() {
+      const modal = new bootstrap.Modal(document.getElementById("addVegModal"));
+      document.getElementById("addVegForm").reset();
+      modal.show();
+    }
+
+    function addNewVegetable() {
+      const key = document.getElementById("newVegKey").value.trim();
+      const label = document.getElementById("newVegLabel").value.trim();
+      const size = parseInt(document.getElementById("newVegSize").value);
+      const perCell = parseInt(document.getElementById("newVegPerCell").value);
+      const good = document.getElementById("newVegGood").value.split(",").map(s => s.trim()).filter(s => s);
+      const bad = document.getElementById("newVegBad").value.split(",").map(s => s.trim()).filter(s => s);
+      if (!key || !label || !size || !perCell) {
+        alert("Please fill in all required fields.");
+        return;
+      }
+      if (vegList[key]) {
+        alert("A vegetable with this identifier already exists.");
+        return;
+      }
+      vegList[key] = { size: size, perCell: perCell, label: label, good: good, bad: bad };
+      renderVegList();
+      populatePlantSelect();
+      const modal = bootstrap.Modal.getInstance(document.getElementById("addVegModal"));
+      modal.hide();
+      alert("New vegetable added!");
+    }
+
+    /***********************
+     * Optimize Layout Function
+     ***********************/
+    function optimizeLayout() {
+      for (let r = 0; r < gridRows; r++) {
+        for (let c = 0; c < gridCols; c++) {
+          gridData[r][c] = null;
+        }
+      }
+      const vegKeys = Object.keys(vegList).sort((a, b) => vegList[b].size - vegList[a].size);
+      for (const veg of vegKeys) {
+        const size = vegList[veg].size;
+        let placed = false;
+        for (let r = 0; r < gridRows; r++) {
+          if (placed) break;
+          for (let c = 0; c < gridCols; c++) {
+            if (r + size <= gridRows && c + size <= gridCols) {
+              let blockFree = true;
+              for (let i = r; i < r + size; i++) {
+                for (let j = c; j < c + size; j++) {
+                  if (gridData[i][j] !== null) {
+                    blockFree = false;
+                    break;
+                  }
+                }
+                if (!blockFree) break;
+              }
+              if (blockFree) {
+                for (let i = r; i < r + size; i++) {
+                  for (let j = c; j < c + size; j++) {
+                    gridData[i][j] = { plant: veg, main: (i === r && j === c), warn: false };
+                  }
+                }
+                placed = true;
+                break;
+              }
+            }
+          }
+        }
+      }
+      applyGridData();
+      alert("Optimized layout applied based on the current vegetable list.");
+    }
+
+    /***********************
+     * Import/Export Functions
+     ***********************/
+    function exportConfig() {
+      const config = { gridRows, gridCols, gridData, vegList };
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+      const downloadAnchor = document.createElement("a");
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "garden_config.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      document.body.removeChild(downloadAnchor);
+    }
+
+    function importConfig(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const config = JSON.parse(e.target.result);
+        gridRows = config.gridRows;
+        gridCols = config.gridCols;
+        vegList = config.vegList;
+        document.getElementById("rows").value = gridRows;
+        document.getElementById("columns").value = gridCols;
+        renderVegList();
+        populatePlantSelect();
+        createGrid(gridRows, gridCols);
+        if (config.gridData) {
+          gridData = config.gridData;
+          applyGridData();
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    /***********************
+     * Event Listeners
+     ***********************/
+    document.getElementById("applyGrid").addEventListener("click", () => {
+      gridRows = parseInt(document.getElementById("rows").value);
+      gridCols = parseInt(document.getElementById("columns").value);
+      createGrid(gridRows, gridCols);
+    });
+    document.getElementById("removePlantInstanceBtn").addEventListener("click", removePlantInstance);
+
+    document.getElementById("changePlantInstanceBtn").addEventListener("click", changePlantInstance);
+
+    document.getElementById("exportConfig").addEventListener("click", exportConfig);
+    document.getElementById("importConfig").addEventListener("click", () => {
+      document.getElementById("fileInput").click();
+    });
+    document.getElementById("fileInput").addEventListener("change", importConfig);
+    document.getElementById("optimizeBtn").addEventListener("click", optimizeLayout);
+    document.getElementById("addPlantBtn").addEventListener("click", addPlant);
+    document.getElementById("saveVegBtn").addEventListener("click", saveEditedVegetable);
+    document.getElementById("deleteVegBtn").addEventListener("click", deleteVegetable);
+    document.getElementById("saveNewVegBtn").addEventListener("click", addNewVegetable);
+    document.getElementById("openAddVegBtn").addEventListener("click", openAddVegModal);
+
+    /***********************
+     * Initialize
+     ***********************/
+    renderVegList();
+    createGrid();
+  </script>
+</body>
+</html>
